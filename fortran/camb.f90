@@ -614,6 +614,10 @@
     outroot = Ini%Read_String('output_root')
     if (outroot /= '') outroot = trim(outroot) // '_'
 
+    !>Open background file
+    open(unit=555, file=trim(outroot)// 'CAMB_debug_Background.dat', status="replace", action="write")
+    write(555,*)  '# ', 'k  ', 'a  ', 'H  ', 'Hdot  '
+
     PK_WantTransfer = Ini%Read_Logical('get_transfer')
     if (PK_WantTransfer)  then
         call Ini%Read('transfer_interp_matterpower', transfer_interp_matterpower)
@@ -757,7 +761,11 @@
 #endif
     end if
 
+    
     CAMB_RunFromIni = .true.
+    !>close background file
+     close(555)
+
 
     end function CAMB_RunFromIni
 

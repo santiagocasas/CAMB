@@ -2803,6 +2803,7 @@
                         tau0, State%tau_maxvis, EV%Kf,f_K)
                 end block
             end if
+            write(555, *) k, a, adotoa, adotoa**2-0.5d0*(grho+gpres)
         end if
     end if
 
