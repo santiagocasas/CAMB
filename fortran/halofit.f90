@@ -60,11 +60,12 @@
     integer, parameter :: halofit_mead2020_feedback=10
     integer, parameter :: halofit_mead=halofit_mead2016 ! AM Kept for backwards compatability
     integer, parameter :: halofit_default=halofit_mead2020
-
+    real(dl), parameter :: halofit_tol_sigma_default = 1.e-6_dl
     logical :: HM_verbose = .false.
 
     type, extends(TNonLinearModel) :: THalofit
         integer :: halofit_version = halofit_default
+        real(dl) :: halofit_tol_sigma = halofit_tol_sigma_default
         !!TT - These are the baryon parameters of HMCode
         real(dl) :: HMcode_A_baryon=3.13_dl
         real(dl) :: HMcode_eta_baryon=0.603_dl
@@ -255,6 +256,7 @@
     class(TIniFile), intent(in) :: Ini
 
     this%halofit_version = Ini%Read_Int('halofit_version', halofit_default)
+    this%halofit_tol_sigma = Ini%Read_Double('halofit_tol_sigma', halofit_tol_sigma_default)
     IF(this%halofit_version == halofit_mead2020_feedback) THEN
         this%HMcode_logT_AGN = Ini%Read_Double('HMcode_logT_AGN', 7.8_dl)
     END IF
@@ -318,14 +320,14 @@
                         rmid=10**rmid
                         call wint(CAMB_Pk,itf,rmid,sig,d1,d2)
                         diff=sig-1.0
-                        if (abs(diff).le.0.001) then
+                        if (abs(diff).le.this%halofit_tol_sigma) then
                             rknl=1./rmid
                             rneff=-3-d1
                             rncur=-d2
                             exit
-                        elseif (diff.gt.0.001) then
+                        elseif (diff.gt.this%halofit_tol_sigma) then
                             xlogr1=log10(rmid)
-                        elseif (diff.lt.-0.001) then
+                        elseif (diff.lt.-this%halofit_tol_sigma) then
                             xlogr2=log10(rmid)
                         endif
                         if (xlogr2 < -1.9999) then
