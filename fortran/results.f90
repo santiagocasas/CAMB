@@ -737,9 +737,9 @@
 
     subroutine CAMBdata_AngularDiameterDistance2Arr(this, arr, z1, z2, n)
     class(CAMBdata) :: this
+    integer, intent(in) :: n
     real(dl), intent(out) :: arr(n)
     real(dl), intent(in) :: z1(n), z2(n)
-    integer, intent(in) :: n
     integer i
 
     !$OMP PARALLEL DO DEFAULT(SHARED),SCHEDULE(STATIC)
@@ -893,11 +893,12 @@
     function CAMBdata_get_zstar(this)
     class(CAMBdata) :: this
     real(dl) CAMBdata_get_zstar
+    real(dl) z_scale
 
     call this%CP%Recomb%Init(this)
-
-    CAMBdata_get_zstar=this%binary_search(noreion_optdepth, 1.d0, 700.d0, 2000.d0, &
-        1d-3,100.d0,5000.d0)
+    z_scale =  COBE_CMBTemp/this%CP%TCMB
+    CAMBdata_get_zstar=this%binary_search(noreion_optdepth, 1.d0, 700.d0*z_scale, &
+        2000.d0*z_scale, 1d-3*z_scale,100.d0*z_scale,5000.d0*z_scale)
 
     end function CAMBdata_get_zstar
 
@@ -1680,7 +1681,7 @@
     real(dl) tau01,a0,barssc,dtau
     real(dl) tau,a,a2
     real(dl) adot,fe,thomc0
-    real(dl) dtbdla,vfi,cf1,maxvis, vis
+    real(dl) dtbdla,vfi,cf1,maxvis, vis, z_scale
     integer ncount,i,j1,iv,ns
     real(dl), allocatable :: spline_data(:)
     real(dl) last_dotmu, om
@@ -2012,8 +2013,9 @@
             end if
         end if
     end do
-    zstar_min = 700._dl
-    zstar_max = 2000._dl
+    z_scale =  COBE_CMBTemp/CP%TCMB
+    zstar_min = 700._dl * z_scale
+    zstar_max = 2000._dl * z_scale
     if ((.not. CP%Reion%Reionization .or. CP%Accuracy%AccurateReionization) .and. CP%WantDerivedParameters) then
         do j1=nint(log(100/this%tauminn)/this%dlntau),nthermo
             if (-sdotmu(j1) - this%actual_opt_depth < 1) then
@@ -2119,15 +2121,15 @@
     call splder(this%dddotmu,this%ddddotmu,nthermo,spline_data)
     if (CP%want_zstar .or. CP%WantDerivedParameters) &
         this%z_star = State%binary_search(noreion_optdepth, 1.d0, zstar_min, zstar_max, &
-        & 1d-3/background_boost, 100._dl, 4000._dl)
+        & 1d-3/background_boost, 100._dl*z_scale, 4000._dl*z_scale)
     !$OMP SECTION
     call splder(this%cs2,this%dcs2,nthermo,spline_data)
     call splder(this%emmu,this%demmu,nthermo,spline_data)
     call splder(this%adot,this%dadot,nthermo,spline_data)
     if (dowinlens) call splder(this%winlens,this%dwinlens,nthermo,spline_data)
     if (CP%want_zdrag .or. CP%WantDerivedParameters) &
-        this%z_drag = State%binary_search(dragoptdepth, 1.d0, 800.d0, &
-        & max(zstar_max*1.1_dl,1200._dl), 2d-3/background_boost, 100.d0, 4000._dl)
+        this%z_drag = State%binary_search(dragoptdepth, 1.d0, 800*z_scale, &
+        & max(zstar_max*1.1_dl,1200._dl*z_scale), 2d-3/background_boost, 100.d0*z_scale, 4000._dl*z_scale)
     !$OMP SECTION
     this%ScaleFactor(:) = this%scaleFactor/taus !a/tau
     this%dScaleFactor(:) = (this%adot - this%ScaleFactor)*this%dlntau !derivative of a/tau
@@ -3459,7 +3461,8 @@
     real(dl) matpower(MTrans%num_q_trans), kh, kvals(MTrans%num_q_trans), ddmat(MTrans%num_q_trans)
     real(dl) atransfer,xi, a0, b0, ho, logmink,k, h
     integer itf
-    integer :: s1,s2
+    integer :: s1,s2, sign
+    logical log_interp
     real(dl), allocatable :: ratio(:)
 
     s1 = PresentDefault (transfer_power_var, var1)
@@ -3487,10 +3490,19 @@
         atransfer=MTrans%TransferData(s1,ik,itf)*MTrans%TransferData(s2,ik,itf)
         if (State%CP%NonLinear/=NonLinear_none .and. State%CP%NonLinear/=NonLinear_Lens) &
             atransfer = atransfer* ratio(ik)**2 !only one element, this itf
-        matpower(ik) = log(atransfer*k*const_pi*const_twopi*h**3)
+        matpower(ik) = atransfer*k*const_pi*const_twopi*h**3
         !Put in power spectrum later: transfer functions should be smooth, initial power may not be
     end do
-
+    sign = 1
+    log_interp = .true.
+    if (any(matpower <= 0)) then
+        if (all(matpower < 0)) then
+            sign = -1
+        else
+            log_interp = .false.
+        endif
+    endif
+    if (log_interp) matpower = log(sign*matpower)
     call spline(kvals,matpower,MTrans%num_q_trans,cllo,clhi,ddmat)
 
     llo=1
@@ -3525,7 +3537,9 @@
         lastix = lastix+1
     end do
 
-    outpower = exp(max(-30.d0,outpower))
+    if (log_interp) then
+        outpower = sign*exp(max(-30.d0,outpower))
+    end if
     associate(InitPower => State%CP%InitPower)
         do il = 1, npoints
             k = exp(logmink + dlnkh*(il-1))*h

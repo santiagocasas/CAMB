@@ -649,8 +649,9 @@ class CAMBdata(F2003Class):
             return outputs[:, np.array(indices)]
 
     def get_dark_energy_rho_w(self, a):
-        """
-        Get dark energy density in units of the dark energy density today, and :math:`w=P/\rho`
+        r"""
+        Get dark energy density in units of the dark energy density today, and equation of state parameter
+        :math:`w\equiv P/\rho`
 
         :param a: scalar factor or array of scale factors
         :return: rho, w arrays at redshifts :math:`1/a-1` [or scalars if :math:`a` is scalar]
@@ -1311,7 +1312,7 @@ class CAMBdata(F2003Class):
         lmax_unlens = self.Params.max_l
         if clpp.shape[0] < lmax_unlens + 1:
             raise CAMBValueError('clpp must go to at least Params.max_l (zero based)')
-        res = np.empty((lmax_unlens + 1, 4), dtype=np.float64)
+        res = np.zeros((lmax_unlens + 1, 4), dtype=np.float64)
         lmax_lensed = c_int(0)
         lensClsWithSpectrum = lib_import('lensing', '', 'lensclswithspectrum')
         lensClsWithSpectrum.argtypes = [POINTER(CAMBdata), numpy_1d, numpy_2d, int_arg]
