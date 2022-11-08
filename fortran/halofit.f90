@@ -320,14 +320,14 @@
                         rmid=10**rmid
                         call wint(CAMB_Pk,itf,rmid,sig,d1,d2)
                         diff=sig-1.0
-                        if (abs(diff).le.this%halofit_tol_sigma) then
+                        if (abs(diff).le.1.e-6_dl) then
                             rknl=1./rmid
                             rneff=-3-d1
                             rncur=-d2
                             exit
-                        elseif (diff.gt.this%halofit_tol_sigma) then
+                        elseif (diff.gt.1.e-6_dl) then
                             xlogr1=log10(rmid)
-                        elseif (diff.lt.-this%halofit_tol_sigma) then
+                        elseif (diff.lt.-1.e-6_dl) then
                             xlogr2=log10(rmid)
                         endif
                         if (xlogr2 < -1.9999) then
