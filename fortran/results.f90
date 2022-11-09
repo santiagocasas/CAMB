@@ -3739,12 +3739,12 @@
     integer j_PK
 
     do j_PK=1, State%CP%Transfer%PK_num_redshifts
-        write(*,'("at z =",f7.3," sigma8 (all matter) = ",f7.4)') &
+        write(*,'("at z =",f7.3," sigma8 (all matter) = ",f14.11)') &
             State%CP%Transfer%PK_redshifts(j_PK), MTrans%sigma_8(j_PK)
     end do
     if (State%get_growth_sigma8) then
         do j_PK=1, State%CP%Transfer%PK_num_redshifts
-            write(*,'("at z =",f7.3," sigma8^2_vd/sigma8  = ",f7.4)') &
+            write(*,'("at z =",f7.3," sigma8^2_vd/sigma8  = ",f14.11)') &
                 State%CP%Transfer%PK_redshifts(j_PK), MTrans%sigma2_vdelta_8(j_PK)/MTrans%sigma_8(j_PK)
         end do
     end if
