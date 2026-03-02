@@ -59,7 +59,7 @@
     use MassiveNu
     use InitialPower
     use SourceWindows
-    use Recombination
+    use Recombination, only: TRecfast
     use RangeUtils
     use constants
     use DarkEnergyInterface
@@ -105,7 +105,6 @@
     integer :: max_bessels_l_index  = 1000000
     real(dl) :: max_bessels_etak = 1000000*2
 
-    Type(ClTransferData), pointer :: ThisCT => null()
     Type(TTimeSources) , pointer :: ThisSources => null()
     Type(TTimeSources), allocatable, target :: TempSources
 
@@ -116,7 +115,7 @@
 
     procedure(obj_function), private :: dtauda
 
-    public cmbmain, TimeSourcesToCl, ClTransferToCl, InitVars, GetTauStart !InitVars for BAO hack
+    public cmbmain, TimeSourcesToCl, ClTransferToCl, InitVars, GetTauStart, CAMBmain_Free !InitVars for BAO hack
 
     contains
 
@@ -126,6 +125,7 @@
     type(EvolutionVars) EV
     Type(TTimer) :: Timer
     real(dl) starttime
+    Type(ClTransferData), pointer :: ThisCT
 
     WantLateTime =  CP%DoLensing .or. State%num_redshiftwindows > 0 .or. CP%CustomSources%num_custom_sources>0
 
@@ -216,7 +216,7 @@
     !     integrating the sources over time and over k.
 
     if (CP%WantCls .and. (.not. CP%WantScalars .or. .not. State%HasScalarTimeSources)) then
-        call TimeSourcesToCl
+        call TimeSourcesToCl(ThisCT)
 
         if (CP%WantScalars) then
             deallocate(State%ScalarTimeSources)
@@ -231,9 +231,10 @@
 
     end subroutine cmbmain
 
-    subroutine TimeSourcesToCl
-    Type(TTimer) :: Timer
+    subroutine TimeSourcesToCl(ThisCT)
+    Type(ClTransferData) :: ThisCT
     integer q_ix
+    Type(TTimer) :: Timer
 
     if (CP%WantScalars) ThisSources => State%ScalarTimeSources
 
@@ -255,21 +256,21 @@
         max_bessels_l_index = ThisCT%ls%nl
         max_bessels_etak  = maximum_qeta
 
-        if (CP%WantScalars) call GetLimberTransfers
+        if (CP%WantScalars) call GetLimberTransfers(ThisCT)
         ThisCT%max_index_nonlimber = max_bessels_l_index
 
         if (State%flat) call InitSpherBessels(ThisCT%ls, CP, max_bessels_l_index,max_bessels_etak )
         !This is only slow if not called before with same (or higher) Max_l, Max_eta_k
         !Preferably stick to Max_l being a multiple of 50
 
-        call SetkValuesForInt
+        call SetkValuesForInt(ThisCT)
 
         if (DebugMsgs .and. Feedbacklevel > 0) call WriteFormat('Set %d integration k values',ThisCT%q%npoints)
 
         !Begin k-loop and integrate Sources*Bessels over time
         !$OMP PARALLEL DO DEFAULT(SHARED), SCHEDULE(STATIC,4)
         do q_ix=1,ThisCT%q%npoints
-            call SourceToTransfers(q_ix)
+            call SourceToTransfers(ThisCT, q_ix)
         end do !q loop
         !$OMP END PARALLEL DO
 
@@ -290,10 +291,10 @@
 
     end subroutine TimeSourcesToCl
 
-    subroutine ClTransferToCl(State)
-    class(CAMBdata) :: State
+    subroutine ClTransferToCl(ActiveState)
+    class(CAMBdata) :: ActiveState
 
-    call SetActiveState(State)
+    call SetActiveState(ActiveState)
     if (State%CP%WantScalars .and. State%CP%WantCls .and. global_error_flag==0) then
         allocate(iCl_Scalar(State%CLdata%CTransScal%ls%nl,C_Temp:State%Scalar_C_last), source=0._dl)
         if (State%CP%want_cl_2D_array) then
@@ -341,7 +342,7 @@
     subroutine CalcLimberScalCls(CTrans)
     Type(ClTransferData), target :: CTrans
     integer ell, i, s_ix
-    real(dl) CL, reall,fac
+    real(dl) Cl, reall,fac
     integer s_ix2,j,n
     integer winmin
     Type(LimberRec), pointer :: LimbRec, LimbRec2
@@ -398,7 +399,8 @@
 
     end subroutine CalcLimberScalCls
 
-    subroutine GetLimberTransfers
+    subroutine GetLimberTransfers(ThisCT)
+    Type(ClTransferData), target :: ThisCT
     integer ell, ell_needed
     integer i, s_ix, s_ix_lens
     type(TRedWin), pointer :: W
@@ -517,7 +519,8 @@
 
     end subroutine GetLimberTransfers
 
-    subroutine SourceToTransfers(q_ix)
+    subroutine SourceToTransfers(ThisCT, q_ix)
+    type(ClTransferData), target :: ThisCT
     integer q_ix
     type(IntegrationVars) :: IV
 
@@ -532,7 +535,7 @@
 
     call InterpolateSources(IV)
 
-    call DoSourceIntegration(IV)
+    call DoSourceIntegration(IV, ThisCT)
 
     if (.not.State%flat) deallocate(IV%ddSource_q)
     deallocate(IV%Source_q)
@@ -754,19 +757,20 @@
         deallocate(ThisSources%LinearSrc)
     allocate(ThisSources%LinearSrc(ThisSources%Evolve_q%npoints,&
         ThisSources%SourceNum,State%TimeSteps%npoints), source=0._dl, stat=err)
-    if (err/=0) call GlobalError('Sources requires too much memory to allocate', error_unsupported_params)                                                                               
+    if (err/=0) call GlobalError('Sources requires too much memory to allocate', &
+        error_unsupported_params)
 
     end subroutine GetSourceMem
 
 
 
     !  initial variables, number of steps, etc.
-    subroutine InitVars(state)
-    type(CAMBdata) :: state
+    subroutine InitVars(ActiveState)
+    type(CAMBdata) :: ActiveState
     real(dl) taumin, maxq, initAccuracyBoost
     integer itf
 
-    call SetActiveState(state)
+    call SetActiveState(ActiveState)
 
     initAccuracyBoost = CP%Accuracy%AccuracyBoost * CP%Accuracy%TimeStepBoost
 
@@ -981,7 +985,7 @@
 
     !     Begin timestep loop.
     itf=1
-    tol1=tol/exp(CP%Accuracy%AccuracyBoost*CP%Accuracy%IntTolBoost-1)
+    tol1=base_tol/exp(CP%Accuracy%AccuracyBoost*CP%Accuracy%IntTolBoost-1)
     if (CP%WantTransfer) then
         if  (CP%Transfer%high_precision) tol1=tol1/100
         do while (itf <= State%num_transfer_redshifts .and. State%TimeSteps%points(2) > State%Transfer_Times(itf))
@@ -1039,7 +1043,7 @@
     subroutine CalcTensorSources(EV,taustart)
     implicit none
     type(EvolutionVars) EV
-    real(dl) tau,tol1,tauend, taustart
+    real(dl) tau,tol,tauend, taustart
     integer j,ind
     real(dl) c(24),wt(EV%nvart,9), yt(EV%nvart)
 
@@ -1047,7 +1051,7 @@
 
     tau=taustart
     ind=1
-    tol1=tol/exp(CP%Accuracy%AccuracyBoost*CP%Accuracy%IntTolBoost-1)
+    tol=base_tol/exp(CP%Accuracy%AccuracyBoost*CP%Accuracy%IntTolBoost-1)
 
     !     Begin timestep loop.
     do j=2,State%TimeSteps%npoints
@@ -1055,7 +1059,7 @@
         if (EV%q*tauend > max_etak_tensor) then
             ThisSources%LinearSrc(EV%q_ix,:,j) = 0
         else
-            call GaugeInterface_EvolveTens(EV,tau,yt,tauend,tol1,ind,c,wt)
+            call GaugeInterface_EvolveTens(EV,tau,yt,tauend,tol,ind,c,wt)
 
             call outputt(EV,yt,EV%nvart,tau,ThisSources%LinearSrc(EV%q_ix,CT_Temp,j),&
                 ThisSources%LinearSrc(EV%q_ix,CT_E,j),ThisSources%LinearSrc(EV%q_ix,CT_B,j))
@@ -1068,7 +1072,7 @@
     subroutine CalcVectorSources(EV,taustart)
     implicit none
     type(EvolutionVars) EV
-    real(dl) tau,tol1,tauend, taustart
+    real(dl) tau,tol,tauend, taustart
     integer j,ind
     real(dl) c(24),wt(EV%nvarv,9), yv(EV%nvarv)
 
@@ -1076,7 +1080,7 @@
 
     tau=taustart
     ind=1
-    tol1=tol*0.01/exp(CP%Accuracy%AccuracyBoost*CP%Accuracy%IntTolBoost-1)
+    tol=base_tol*0.01/exp(CP%Accuracy%AccuracyBoost*CP%Accuracy%IntTolBoost-1)
 
 
     !     Begin timestep loop.
@@ -1086,7 +1090,7 @@
         if ( EV%q*tauend > max_etak_vector) then
             ThisSources%LinearSrc(EV%q_ix,:,j) = 0
         else
-            call dverk(EV,EV%nvarv,derivsv,tau,yv,tauend,tol1,ind,c,EV%nvarv,wt) !tauend
+            call dverk(EV,EV%nvarv,derivsv,tau,yv,tauend,tol,ind,c,EV%nvarv,wt) !tauend
 
             call outputv(EV,yv,EV%nvarv,tau,ThisSources%LinearSrc(EV%q_ix,CT_Temp,j),&
                 ThisSources%LinearSrc(EV%q_ix,CT_E,j),ThisSources%LinearSrc(EV%q_ix,CT_B,j))
@@ -1105,7 +1109,7 @@
 
 
     if (DebugMsgs .and. Feedbacklevel > 0) &
-        call WriteFormat('Transfer k values: %f',State%MT%num_q_trans-n_source_points)
+        call WriteFormat('Transfer k values: %d',State%MT%num_q_trans-n_source_points)
 
     !     loop over wavenumbers.
     !$OMP PARALLEL DO DEFAULT(SHARED),SCHEDULE(DYNAMIC), PRIVATE(EV, tau, q_ix)
@@ -1135,7 +1139,7 @@
     real(dl) c(24),w(EV%nvar,9), y(EV%nvar)
     real(dl) atol
 
-    atol=tol/exp(CP%Accuracy%AccuracyBoost*CP%Accuracy%IntTolBoost-1)
+    atol=base_tol/exp(CP%Accuracy%AccuracyBoost*CP%Accuracy%IntTolBoost-1)
     if (CP%Transfer%high_precision) atol=atol/10000 !CHECKTHIS
 
     ind=1
@@ -1181,8 +1185,7 @@
             !Do not use an associate for scaling. It does not work.
             scaling = State%CAMB_Pk%nonlin_ratio(ik,1:State%num_transfer_redshifts)
             if (all(abs(scaling-1) < 5e-4)) cycle
-            call spline(State%Transfer_Times(1), scaling(1), State%num_transfer_redshifts,&
-                spl_large, spl_large, ddScaling(1))
+            call spline_def(State%Transfer_Times, scaling, State%num_transfer_redshifts,ddScaling)
 
             tf_lo=1
             tf_hi=tf_lo+1
@@ -1222,8 +1225,8 @@
     !$OMP PARALLEL DO DEFAULT(SHARED), SCHEDULE(STATIC), PRIVATE(i,j)
     do  i=1,State%TimeSteps%npoints
         do j=1, ThisSources%SourceNum
-            call spline(ThisSources%Evolve_q%points,ScaledSrc(1,j,i), &
-                ThisSources%Evolve_q%npoints,spl_large, spl_large, ddScaledSrc(1,j,i))
+            call spline_def(ThisSources%Evolve_q%points,ScaledSrc(:,j,i), &
+                ThisSources%Evolve_q%npoints, ddScaledSrc(:,j,i))
         end do
     end do
     !$OMP END PARALLEL DO
@@ -1231,7 +1234,8 @@
     end subroutine InitSourceInterpolation
 
 
-    subroutine SetkValuesForInt
+    subroutine SetkValuesForInt(ThisCT)
+    Type(ClTransferData) :: ThisCT
     integer no
     real(dl) dk,dk0,dlnk1, dk2, max_k_dk, k_max_log, k_max_0
     integer lognum
@@ -1374,8 +1378,8 @@
 
     if (.not.State%flat) then
         do i=1, ThisSources%SourceNum
-            call spline(State%TimeSteps%points,IV%Source_q(1,i),State%TimeSteps%npoints,&
-                spl_large,spl_large,IV%ddSource_q(1,i))
+            call spline_def(State%TimeSteps%points,IV%Source_q(:,i),State%TimeSteps%npoints,&
+                IV%ddSource_q(:,i))
         end do
     end if
 
@@ -1392,10 +1396,11 @@
     end  subroutine IntegrationVars_Init
 
 
-    subroutine DoSourceIntegration(IV) !for particular wave number q
+    subroutine DoSourceIntegration(IV, ThisCT) !for particular wave number q
+    type(IntegrationVars) IV
+    Type(ClTransferData) :: ThisCT
     integer j,ll,llmax
     real(dl) nu
-    type(IntegrationVars) IV
     real(dl) :: sixpibynu
 
     nu=IV%q*State%curvature_radius
@@ -1418,12 +1423,12 @@
     end if
 
     if (State%flat) then
-        call DoFlatIntegration(IV,llmax)
+        call DoFlatIntegration(IV,ThisCT, llmax)
     else
         do j=1,ThisCT%ls%nl
             ll=ThisCT%ls%l(j)
             if (ll>llmax) exit
-            call IntegrateSourcesBessels(IV,j,ll,nu)
+            call IntegrateSourcesBessels(IV,ThisCT,j,ll,nu)
         end do !j loop
     end if
 
@@ -1449,9 +1454,10 @@
     end function UseLimber
 
     !flat source integration
-    subroutine DoFlatIntegration(IV, llmax)
+    subroutine DoFlatIntegration(IV, ThisCT, llmax)
     implicit none
     type(IntegrationVars) IV
+    Type(ClTransferData) :: ThisCT
     integer llmax
     integer j
     logical DoInt
@@ -1641,9 +1647,10 @@
 
     !non-flat source integration
 
-    subroutine IntegrateSourcesBessels(IV,j,l,nu)
+    subroutine IntegrateSourcesBessels(IV,ThisCT,j,l,nu)
     use SpherBessels
     type(IntegrationVars) IV
+    Type(ClTransferData) :: ThisCT
     logical DoInt
     integer l,j, nstart,nDissipative,ntop,nbot,nrange,nnow
     real(dl) nu,ChiDissipative,ChiStart,tDissipative,y1,y2,y1dis,y2dis
@@ -1686,7 +1693,8 @@
         if (ThisSources%SourceNum > 3) call MpiStop('Non-flat not implemented for extra sources')
         !Integrate chi down in dissipative region
         ! cuts off when ujl gets small
-        miny1= 0.5d-4/l/BessIntBoost
+        ! Fix for ujl discontinuity in near-flat models - adaptive formula provides superior performance
+        miny1= 0.5d-4/(l+max(0,30-l))/BessIntBoost  ! Adaptive formula for Omega_k discontinuity fix, see https://github.com/cmbant/CAMB/pull/185
         sums=0
         qmax_int= max(850,ThisCT%ls%l(j))*3*BessIntBoost/(State%chi0*State%curvature_radius)*1.2
         DoInt =  ThisSources%SourceNum/=3 .or. IV%q < qmax_int
@@ -2600,6 +2608,15 @@
     end if
 
     end subroutine InterpolateCls
+
+    subroutine CAMBMain_Free()
+    ! Not needed, only used to clean up for mem leak testing
+    if (allocated(iCl_scalar)) deallocate(iCl_scalar)
+    if (allocated(iCl_vector)) deallocate(iCl_vector)
+    if (allocated(iCl_tensor)) deallocate(iCl_tensor)
+    if (allocated(iCl_Array)) deallocate(iCl_Array)
+    if (allocated(TempSources)) deallocate(TempSources)
+    end subroutine CAMBMain_Free
 
 
     end module CAMBmain

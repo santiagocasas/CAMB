@@ -97,10 +97,18 @@ FFLAGS = -O3 $(COMMON_FFLAGS)
 DEBUGFLAGS = -g -fbacktrace -ffpe-trap=invalid,overflow,zero -fbounds-check $(COMMON_FFLAGS)
 ifeq ($(shell uname -s),Darwin)
 SFFLAGS = -dynamiclib #-fpic
+ifneq ($(shell echo $(compiler_ver) | awk '{print ($$1 >= 14.0)}'),0)
+LIBGFORTRAN_A := $(shell $(F90C) -print-file-name=libgfortran.a)
+ifneq ($(shell [ -f "$(LIBGFORTRAN_A)" ] && echo yes),)
+SFFLAGS += -static-libgfortran -static-libquadmath -static-libgcc
+endif
+endif
 else
 SFFLAGS = -shared -fpic
 endif
-#SFFLAGS =  -shared -fPIC
+
+
+
 MODOUT =  -J$(OUTPUT_DIR)
 SMODOUT = -J$(DLL_DIR)
 

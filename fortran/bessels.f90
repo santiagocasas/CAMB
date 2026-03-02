@@ -11,6 +11,7 @@
     use results
     use RangeUtils
     use MpiUtils
+    use splines
     implicit none
     private
 
@@ -85,8 +86,10 @@
 
     ! The three arrays are always (de-)allocated together. Therefore checking
     ! one of them for allocation is sufficient.
-    if (.not. allocated(ajl) .or. any(ubound(ajl) < [num_xx, max_ix])) then
-        if (allocated(ajl)) deallocate(ajl, ajlpr, ddajlpr)
+    if (allocated(ajl)) then
+        if (any(ubound(ajl) < [num_xx, max_ix])) deallocate(ajl, ajlpr, ddajlpr)
+    end if
+    if (.not. allocated(ajl)) then
         allocate(ajl(1:num_xx,1:max_ix), ajlpr(1:num_xx,1:max_ix), &
             ddajlpr(1:num_xx,1:max_ix))
     end if
@@ -115,8 +118,8 @@
         end do
 
         !     get the interpolation matrix for bessel functions
-        call spline(BessRanges%points,ajl(1,j),num_xx,spl_large,spl_large,ajlpr(1,j))
-        call spline(BessRanges%points,ajlpr(1,j),num_xx,spl_large,spl_large,ddajlpr(1,j))
+        call spline_def(BessRanges%points,ajl(:,j),num_xx,ajlpr(:,j))
+        call spline_def(BessRanges%points,ajlpr(:,j),num_xx,ddajlpr(:,j))
     end do
     !$OMP END PARALLEL DO
 
@@ -127,9 +130,12 @@
     if (allocated(ajl)) deallocate(ajl)
     if (allocated(ajlpr)) deallocate(ajlpr)
     if (allocated(ddajlpr)) deallocate(ddajlpr)
+    if (allocated(file_l%l)) deallocate(file_l%l)
+    file_l%nl=0
+
     call BessRanges%Free()
 
-    end  subroutine Bessels_Free
+    end subroutine Bessels_Free
 
 
     SUBROUTINE BJL(L,X,JL)
@@ -1337,4 +1343,3 @@
     call BJL(L,X,JL)
 
     END SUBROUTINE BJL_EXTERNAL
-

@@ -21,7 +21,7 @@
     !Nu_best: automatically use mixture which is fastest and most accurate
 
     integer, parameter :: max_Nu = 5 !Maximum number of neutrino species
-    integer, parameter :: max_transfer_redshifts = 150
+    integer, parameter :: max_transfer_redshifts = 256
 
     type TransferParams
         logical     ::  high_precision = .false.
@@ -183,6 +183,7 @@
         logical :: transfer_21cm_cl = .false.
         logical :: Log_lvalues  = .false. !useful for smooth results at very high L
         logical :: use_cl_spline_template = .true.
+        integer :: min_l_logl_sampling = 5000 ! increase to use linear sampling for longer
 
         Type(TSourceWindowHolder), allocatable :: SourceWindows(:)
 
@@ -237,6 +238,7 @@
     !Set neutrino hierarchy in the approximate two-eigenstate model (treating two as exactly degenerate, and assuming non-relativistic),
     !or use degenerate mass approximation.
     !omnuh2 is the massive total neutrino density today, omnuh2_sterile is the component of that due to steriles
+    !omnuh2_sterile is interpreted as in the Planck parameter papers
     use MathUtils
     use constants
     class(CAMBparams), intent(inout) :: this
@@ -251,6 +253,7 @@
         return
     end if
     this%Nu_mass_eigenstates=0
+    this%share_delta_neff = .false.
     if (omnuh2 > omnuh2_sterile) then
         normal_frac =  (omnuh2-omnuh2_sterile)/omnuh2
         if (neutrino_hierarchy == neutrino_hierarchy_degenerate) then
@@ -318,7 +321,7 @@
         neff_massive_standard=0
     end if
     if (omnuh2_sterile>0) then
-        if (nnu<default_nnu) call MpiStop('nnu < 3.046 with massive sterile')
+        if (nnu<default_nnu) call MpiStop('nnu < 3.044 with massive sterile')
         this%Num_Nu_Massless = default_nnu - neff_massive_standard
         this%Num_Nu_Massive=this%Num_Nu_Massive+1
         this%Nu_mass_eigenstates=this%Nu_mass_eigenstates+1
